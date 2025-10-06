@@ -27,8 +27,10 @@
 
 typedef enum {
     IO_ERR_OK,
-    IO_ERR_OOM,     // Out of memory
-    IO_ERR_INV_PTR, // Invalid pointer
+    IO_ERR_OOM,         // Out of memory
+    IO_ERR_OOB,         // Out of bounds
+    IO_ERR_INV_PTR,     // Invalid pointer
+    IO_ERR_FAILED_READ, // Failed to read from file descriptor
 } IO_Err;
 
 /**
@@ -66,12 +68,12 @@ IO_Err io_buffer_free(IO_Buffer *b);
 size_t io_buffer_len(IO_Buffer *b);
 
 /**
- * Copies data from buffer into a continuous array.
+ * Copies n bytes of data from provided buffer into a continuous array.
  *
  * The function presumes that `dest` is a properly allocated array and has
  * enough size to store the whole buffer data.
  */
-IO_Err io_buffer_copy(IO_Buffer *src, char *dest);
+IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
 #endif // IO_H
 
 #ifdef IO_IMPL
@@ -103,17 +105,21 @@ size_t io_buffer_len(IO_Buffer *b) {
     return b->cap - (b->start - b->buf) + (b->end - b->buf) + 1;
 }
 
-IO_Err io_buffer_copy(IO_Buffer *src, char *dest) {
-    if (dest == NULL) return IO_ERR_INV_PTR;
-    if (src->end == src->start) return IO_ERR_OK;
+IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
+    if (dest == NULL)           return IO_ERR_INV_PTR;
+    if (n == 0)                 return IO_ERR_OK;
+    if (n > io_buffer_len(src)) return IO_ERR_OOB;
+
     if (src->end > src->start) {
-        memcpy(dest, src->start, src->end - src->start + 1);
+        memcpy(dest, src->start, n);
         return IO_ERR_OK;
     }
 
     size_t rest = src->cap - (src->start - src->buf);
-    memcpy(dest, src->start, rest);
-    memcpy(dest + rest, src->buf, src->end - src->buf + 1);
+    memcpy(dest, src->start, MIN(rest, n));
+    if (n > rest) {
+        memcpy(dest + rest, src->buf, n-rest);
+    }
 
     return IO_ERR_OK;
 }
