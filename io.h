@@ -74,6 +74,14 @@ size_t io_buffer_len(IO_Buffer *b);
  * enough size to store the whole buffer data.
  */
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
+
+/**
+ * Appends data of size n into buffer.
+ *
+ * The function presumes that `src` is a properly allocated continuous array.
+ */
+IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
+
 #endif // IO_H
 
 #ifdef IO_IMPL
@@ -86,6 +94,11 @@ IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
 #  include <stdlib.h>
 #  define IO_MALLOC malloc
 #endif // IO_MALLOC
+
+
+#ifndef MIN
+#  define MIN(a, b) ((a) < (b)) ? (a) : (b)
+#endif // MIN
 
 IO_Err io_buffer_init(IO_Buffer *b, size_t cap) {
     b->cap = cap;
@@ -119,6 +132,34 @@ IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
     memcpy(dest, src->start, MIN(rest, n));
     if (n > rest) {
         memcpy(dest + rest, src->buf, n-rest);
+    }
+
+    return IO_ERR_OK;
+}
+
+IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n) {
+    if (n == 0) return IO_ERR_OK;
+
+    size_t len = io_buffer_len(dest);
+    size_t space_left = dest->cap - len;
+
+    if (n > space_left) return IO_ERR_OOB;
+    if (dest->start > dest->end) {
+        memcpy(dest->end + 1, src, n);
+        dest->end += n;
+        return IO_ERR_OK;
+    }
+
+    char *last = &dest->buf[dest->cap-1];
+    size_t rest = (last == dest->end) ? 0 : last - dest->end + 1;
+    size_t to_copy = MIN(rest, n);
+    memcpy(dest->end, src, to_copy);
+    dest->end = dest->buf + to_copy - 1;
+    n -= rest;
+
+    if (n > 0) {
+        memcpy(dest->buf, src + rest, n);
+        dest->end = dest->buf + n - 1;
     }
 
     return IO_ERR_OK;
