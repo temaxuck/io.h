@@ -34,14 +34,14 @@ typedef enum {
 /**
  * Reusable buffer for IO operations.
  *
- * To navigate over buffer data use `start` and `end` pointers. Consider this
- * example:
+ * To navigate through the buffer data, use `start` and `end` pointers.
+ * Consider this example:
  *
  *     buf: |a|b|c|d|e|f|g|h|
  *             ^         ^
  *             end       start
  *
- *     Effective data is bytes at indexes: g, h, a, b.
+ *     The effective data consists of the bytes at indexes: g, h, a, and b.
  */
 typedef struct {
     char *buf, *start, *end;
@@ -51,7 +51,7 @@ typedef struct {
 /**
  * Initializes IO buffer.
  *
- * The callee must free the Buffer later using `io_buffer_free()` function.
+ * The callee must free the buffer later using `io_buffer_free()` function.
  */
 IO_Err io_buffer_init(IO_Buffer *b, size_t cap);
 
@@ -66,7 +66,7 @@ IO_Err io_buffer_free(IO_Buffer *b);
 size_t io_buffer_len(IO_Buffer *b);
 
 /**
- * Copies data from buffer into a continous array.
+ * Copies data from buffer into a continuous array.
  *
  * The function presumes that `dest` is a properly allocated array and has
  * enough size to store the whole buffer data.
