@@ -5,6 +5,8 @@
 #define IO_IMPL
 #include "../io.h"
 
+static long T_BUFFER_PASSED = 0, T_BUFFER_FAILED = 0;
+
 #define T_BUFFER_STATIC_MEMORY_SZ 64 * 1 << 10
 #define T_BUFFER_REPR_DATA_MAX_LEN 32
 
@@ -26,11 +28,17 @@
             d;                                          \
         })
 
-#define T_BUFFER_ASSERT(expr, ...) ({                                   \
-            bool result = (expr);                                       \
-            if (result) printf("PASS: %s: %s\n", __func__, #expr);      \
-            else        printf("FAIL: %s: %s\n", __func__, #expr);      \
-            result;                                                     \
+#define T_BUFFER_ASSERT(expr, ...) ({                       \
+            bool result = (expr);                           \
+            if (result) {                                   \
+                printf("PASS: %s: %s\n", __func__, #expr);  \
+                T_BUFFER_PASSED += 1;                       \
+            }                                               \
+            else {                                          \
+                T_BUFFER_FAILED += 1;                       \
+                printf("FAIL: %s: %s\n", __func__, #expr);  \
+            }                                               \
+            result;                                         \
         })
 
 #define T_BUFFER_ASSERT_FOR_BUFFER(expr, b) ({              \
@@ -155,7 +163,6 @@ void t_buffer_case_wrapped_buffer_read_nspit_across_wrap(void) {
     if (!T_BUFFER_ASSERT(strncmp(dest, "ABCD", 4) == 0)) printf("ERROR: dest=%.*s (expected: ABCD)\n", 4, dest);
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
-    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -181,7 +188,6 @@ void t_buffer_case_append_when_buffer_is_wrapped_fills_remaining_capacity(void) 
     T_BUFFER_ASSERT(io_buffer_nspit(&after, dest, 6) == IO_ERR_OK);
     if (!T_BUFFER_ASSERT(strncmp(dest, "ABCDEF", 6) == 0)) printf("ERROR: dest=%.*s (expected: ABCDEF)\n", 4, dest);
 
-    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -201,7 +207,6 @@ void t_buffer_case_append_that_would_exceed_remaining_capacity(void) {
     T_BUFFER_ASSERT(io_buffer_append(&after, "EFG", 3) == IO_ERR_OOB);
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
-    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -235,7 +240,6 @@ void t_buffer_case_nspit_reading_across_the_wrap_boundary_partial(void) {
 
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
-    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -277,29 +281,99 @@ void t_buffer_case_nspit_with_n_eq_0(void) {
     free(dest);
     io_buffer_free(&before);
     io_buffer_free(&after);
+}
 
+void t_buffer_case_nadvance_contiguous_data(void) {
+    IO_Buffer b = T_BUFFER_EMPTY(6);
+    T_BUFFER_ASSERT_FOR_BUFFER(io_buffer_append(&b, "123456", 6) == IO_ERR_OK, &b);
+
+    T_BUFFER_ASSERT(io_buffer_nadvance(&b, 4) == 4);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.start == b.buf + 4, &b);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.end == b.buf + 6, &b);
+
+    io_buffer_free(&b);
+}
+
+void t_buffer_case_nadvance_wrap(void) {
+    char *raw = malloc(7);
+    raw[0] = 'C';
+    raw[1] = 'D';
+    raw[2] = '\0';
+    raw[3] = '\0';
+    raw[4] = '\0';
+    raw[5] = 'A';
+    raw[6] = 'B';
+    IO_Buffer b = {.cap=6, .buf=raw, .start=raw+5, .end=raw+2};
+
+    T_BUFFER_ASSERT(io_buffer_nadvance(&b, 3) == 3);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.start == b.buf + 1, &b);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.end == b.buf + 2, &b);
+
+    io_buffer_free(&b);
+}
+
+void t_buffer_case_nadvance_to_0(void) {
+    IO_Buffer b = T_BUFFER_EMPTY(6);
+    T_BUFFER_ASSERT_FOR_BUFFER(io_buffer_append(&b, "123456", 6) == IO_ERR_OK, &b);
+
+    T_BUFFER_ASSERT(io_buffer_nadvance(&b, 0) == 0);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.start == b.buf, &b);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.end == b.buf + 6, &b);
+
+    io_buffer_free(&b);
+}
+
+void t_buffer_case_nadvance_with_empty_buffer(void) {
+    IO_Buffer b = T_BUFFER_EMPTY(6);
+
+    T_BUFFER_ASSERT(io_buffer_nadvance(&b, 4) == 0);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.start == b.buf && b.end == b.buf, &b);
+
+    io_buffer_free(&b);
+}
+
+void t_buffer_case_nadvance_beyond_capacity(void) {
+    IO_Buffer b = T_BUFFER_EMPTY(6);
+    T_BUFFER_ASSERT_FOR_BUFFER(io_buffer_append(&b, "123456", 6) == IO_ERR_OK, &b);
+
+    T_BUFFER_ASSERT(io_buffer_nadvance(&b, 69) == 6);
+    T_BUFFER_ASSERT_FOR_BUFFER(b.start == b.end && b.end == b.buf + 6, &b);
+
+    io_buffer_free(&b);
 }
 //////////////////// END:   TEST CASES IMPLEMENTATION ////////////////////
 
-#define T_BUFFER_CASE_MAP(XX)                                           \
-    XX(1,  init_empty);                                                 \
-    XX(2,  append_exactly_capacity_no_wrap);                            \
-    XX(3,  append_beyond_capacity);                                     \
-    XX(4,  append_zero_bytes);                                          \
-    XX(5,  nspit_contiguous_read_no_wrap);                              \
-    XX(6,  nspit_partial_contiguous_read);                              \
-    XX(7,  wrapped_buffer_read_nspit_across_wrap);                      \
-    XX(8,  append_when_buffer_is_wrapped_fills_remaining_capacity);     \
-    XX(9,  append_that_would_exceed_remaining_capacity);                \
-    XX(10, nspit_requesting_more_bytes_than_available);                 \
-    XX(11, nspit_reading_across_the_wrap_boundary_partial);             \
-    XX(12, minimal_capacity_cap_eq_1);                                  \
-    XX(13, nspit_with_n_eq_0);
+#define T_BUFFER_CASE_MAP(XX)                                       \
+    XX(1,  init_empty)                                              \
+    XX(2,  append_exactly_capacity_no_wrap)                         \
+    XX(3,  append_beyond_capacity)                                  \
+    XX(4,  append_zero_bytes)                                       \
+    XX(5,  nspit_contiguous_read_no_wrap)                           \
+    XX(6,  nspit_partial_contiguous_read)                           \
+    XX(7,  wrapped_buffer_read_nspit_across_wrap)                   \
+    XX(8,  append_when_buffer_is_wrapped_fills_remaining_capacity)  \
+    XX(9,  append_that_would_exceed_remaining_capacity)             \
+    XX(10, nspit_requesting_more_bytes_than_available)              \
+    XX(11, nspit_reading_across_the_wrap_boundary_partial)          \
+    XX(12, minimal_capacity_cap_eq_1)                               \
+    XX(13, nspit_with_n_eq_0)                                       \
+    XX(14, nadvance_contiguous_data)                                \
+    XX(15, nadvance_wrap)                                           \
+    XX(16, nadvance_to_0)                                           \
+    XX(17, nadvance_with_empty_buffer)                              \
+    XX(18, nadvance_beyond_capacity)
 
 void t_buffer_run(void) {
-#define XX(num, name) ({printf("#################### BEGIN: TC \"%s\" ####################\n", #name); t_buffer_case_##name();printf("#################### END:   TC \"%s\" ####################\n", #name);})
-    T_BUFFER_CASE_MAP(XX);
+#define XX(num, name) do {                                              \
+        printf("#################### BEGIN: TC \"%s\" ####################\n", #name); \
+        t_buffer_case_##name();                                         \
+        printf("#################### END:   TC \"%s\" ####################\n", #name); \
+    } while(0);
+
+      T_BUFFER_CASE_MAP(XX);
 #undef XX
+
+      printf("INFO: PASSED: %ld; FAILED: %ld.\n", T_BUFFER_PASSED, T_BUFFER_FAILED);
 }
 
 int main(void) {

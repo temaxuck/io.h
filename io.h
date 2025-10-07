@@ -75,6 +75,15 @@ IO_Err io_buffer_free(IO_Buffer *b);
 size_t io_buffer_len(IO_Buffer *b);
 
 /**
+ * Advances the buffer's `start` pointer forward by up to n bytes and returns
+ * number of bytes the start pointer was advanced.
+ *
+ * If n exceeds the number of bytes currently stored (as returned by
+ * io_buffer_len()), only the available bytes are skipped.
+ */
+size_t io_buffer_nadvance(IO_Buffer *b, size_t n);
+
+/**
  * Copies n bytes of data from provided buffer into a contiguous array.
  *
  * The function presumes that `dest` is a properly allocated array and has
@@ -119,9 +128,53 @@ IO_Err io_buffer_free(IO_Buffer *b) {
     return IO_ERR_OK;
 }
 
+/**
+ * Returns physical size of the buffer.
+ */
+static inline size_t _io_buffer_size(IO_Buffer *b) {
+    return b->cap + 1;
+}
+
 size_t io_buffer_len(IO_Buffer *b) {
     if (b->end >= b->start) return b->end - b->start;
-    return (b->cap+1) - (b->start - b->buf) + (b->end - b->buf);
+    return _io_buffer_size(b) - (b->start - b->buf) + (b->end - b->buf);
+}
+
+/**
+ * Returns the number of bytes between the later (farthest-from-`buf`) of
+ * `b->start` and `b->end` and the physical end of the storage region.
+ *
+ * This is the length of the contiguous region available (or occupied) from
+ * that pointer to the buffer's end; use it to determine how many bytes can be
+ * read or written without wrapping back to `b->buf`.
+ *
+ * Example (8 bytes total, indices 0..7):
+ *   case A: end >= start
+ *     buf: |a|b|c|d|e|f|g|h|
+ *             ^         ^
+ *             start     end
+ *     return value: distance from `end` to buffer end (1)
+ *
+ *   case B: end < start
+ *     buf: |a|b|c|d|e|f|g|h|
+ *             ^       ^
+ *             end     start
+ *     return value: distance from `start` to buffer end (2)
+ */
+static inline size_t _io_buffer_left_until_wrap(IO_Buffer *b) {
+    if (b->end >= b->start) return _io_buffer_size(b) - (b->end - b->buf);
+    return _io_buffer_size(b) - (b->start - b->buf);
+}
+
+size_t io_buffer_nadvance(IO_Buffer *b, size_t n) {
+    size_t len = io_buffer_len(b);
+    size_t to_shift = (n > len) ? len : n;
+
+    size_t cur_pos = b->start - b->buf;
+    size_t new_pos = (cur_pos + to_shift) % _io_buffer_size(b);
+
+    b->start = b->buf + new_pos;
+    return to_shift;
 }
 
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
@@ -129,13 +182,12 @@ IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
     if (n == 0)                 return IO_ERR_OK;
     if (n > io_buffer_len(src)) return IO_ERR_OOB;
 
-    if (src->end > src->start) {
+    if (src->end >= src->start) {
         memcpy(dest, src->start, n);
         return IO_ERR_OK;
     }
 
-    size_t rest = (src->cap + 1) - (src->start - src->buf);
-    size_t to_copy = MIN(rest, n);
+    size_t to_copy = MIN(_io_buffer_left_until_wrap(src), n);
     memcpy(dest, src->start, to_copy);
     if (n > to_copy) {
         memcpy(dest + to_copy, src->buf, n-to_copy);
@@ -157,12 +209,11 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n) {
         return IO_ERR_OK;
     }
 
-    size_t rest = &dest->buf[dest->cap+1] - dest->end;
-    size_t to_copy = MIN(rest, n);
+    size_t to_copy = MIN(_io_buffer_left_until_wrap(dest), n);
     memcpy(dest->end, src, to_copy);
     // TODO: Possible overflow.
     dest->end += to_copy;
-    if (dest->end >= &dest->buf[dest->cap+1]) dest->end = dest->buf;
+    if (dest->end >= &dest->buf[_io_buffer_size(dest)]) dest->end = dest->buf;
     n -= to_copy;
 
     if (n > 0) {
