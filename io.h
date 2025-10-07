@@ -34,16 +34,23 @@ typedef enum {
 } IO_Err;
 
 /**
- * Reusable buffer for IO operations.
+ * Reusable circular buffer for IO operations.
  *
  * To navigate through the buffer data, use `start` and `end` pointers.
- * Consider this example:
+ * `start` points to the first valid byte, `end` - to the one past the last
+ * valid pointer. Consider this example:
  *
  *     buf: |a|b|c|d|e|f|g|h|
- *             ^         ^
- *             end       start
+ *               ^       ^
+ *               end     start
  *
  *     The effective data consists of the bytes at indexes: g, h, a, and b.
+ *
+ * The actual buffer size is `cap` + 1. This is needed to maintain the meaning
+ * of `start` and `end` pointers, allowing these pointers to represent buffer
+ * in this range of memory: [start, end).
+ *
+ * NOTE: Case, when `start == end`, implies an empty buffer.
  */
 typedef struct {
     char *buf, *start, *end;
@@ -68,7 +75,7 @@ IO_Err io_buffer_free(IO_Buffer *b);
 size_t io_buffer_len(IO_Buffer *b);
 
 /**
- * Copies n bytes of data from provided buffer into a continuous array.
+ * Copies n bytes of data from provided buffer into a contiguous array.
  *
  * The function presumes that `dest` is a properly allocated array and has
  * enough size to store the whole buffer data.
@@ -78,7 +85,7 @@ IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
 /**
  * Appends data of size n into buffer.
  *
- * The function presumes that `src` is a properly allocated continuous array.
+ * The function presumes that `src` is a properly allocated contiguous array.
  */
 IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
 
@@ -97,12 +104,12 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
 
 
 #ifndef MIN
-#  define MIN(a, b) ((a) < (b)) ? (a) : (b)
+#  define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif // MIN
 
 IO_Err io_buffer_init(IO_Buffer *b, size_t cap) {
     b->cap = cap;
-    b->end = b->start = b->buf = IO_MALLOC(cap);
+    b->end = b->start = b->buf = IO_MALLOC(cap + 1);
     if (b->buf == NULL) return IO_ERR_OOM;
     return IO_ERR_OK;
 }
@@ -113,9 +120,8 @@ IO_Err io_buffer_free(IO_Buffer *b) {
 }
 
 size_t io_buffer_len(IO_Buffer *b) {
-    if (b->end == b->start) return 0;
-    if (b->end > b->start)  return b->end - b->start + 1;
-    return b->cap - (b->start - b->buf) + (b->end - b->buf) + 1;
+    if (b->end >= b->start) return b->end - b->start;
+    return (b->cap+1) - (b->start - b->buf) + (b->end - b->buf);
 }
 
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
@@ -128,10 +134,11 @@ IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
         return IO_ERR_OK;
     }
 
-    size_t rest = src->cap - (src->start - src->buf);
-    memcpy(dest, src->start, MIN(rest, n));
-    if (n > rest) {
-        memcpy(dest + rest, src->buf, n-rest);
+    size_t rest = (src->cap + 1) - (src->start - src->buf);
+    size_t to_copy = MIN(rest, n);
+    memcpy(dest, src->start, to_copy);
+    if (n > to_copy) {
+        memcpy(dest + to_copy, src->buf, n-to_copy);
     }
 
     return IO_ERR_OK;
@@ -142,24 +149,25 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n) {
 
     size_t len = io_buffer_len(dest);
     size_t space_left = dest->cap - len;
-
     if (n > space_left) return IO_ERR_OOB;
+
     if (dest->start > dest->end) {
-        memcpy(dest->end + 1, src, n);
+        memcpy(dest->end, src, n);
         dest->end += n;
         return IO_ERR_OK;
     }
 
-    char *last = &dest->buf[dest->cap-1];
-    size_t rest = (last == dest->end) ? 0 : last - dest->end + 1;
+    size_t rest = &dest->buf[dest->cap+1] - dest->end;
     size_t to_copy = MIN(rest, n);
     memcpy(dest->end, src, to_copy);
-    dest->end = dest->buf + to_copy - 1;
-    n -= rest;
+    // TODO: Possible overflow.
+    dest->end += to_copy;
+    if (dest->end >= &dest->buf[dest->cap+1]) dest->end = dest->buf;
+    n -= to_copy;
 
     if (n > 0) {
-        memcpy(dest->buf, src + rest, n);
-        dest->end = dest->buf + n - 1;
+        memcpy(dest->end, src + to_copy, n);
+        dest->end += n;
     }
 
     return IO_ERR_OK;
