@@ -155,6 +155,7 @@ void t_buffer_case_wrapped_buffer_read_nspit_across_wrap(void) {
     if (!T_BUFFER_ASSERT(strncmp(dest, "ABCD", 4) == 0)) printf("ERROR: dest=%.*s (expected: ABCD)\n", 4, dest);
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
+    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -180,6 +181,7 @@ void t_buffer_case_append_when_buffer_is_wrapped_fills_remaining_capacity(void) 
     T_BUFFER_ASSERT(io_buffer_nspit(&after, dest, 6) == IO_ERR_OK);
     if (!T_BUFFER_ASSERT(strncmp(dest, "ABCDEF", 6) == 0)) printf("ERROR: dest=%.*s (expected: ABCDEF)\n", 4, dest);
 
+    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -199,6 +201,7 @@ void t_buffer_case_append_that_would_exceed_remaining_capacity(void) {
     T_BUFFER_ASSERT(io_buffer_append(&after, "EFG", 3) == IO_ERR_OOB);
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
+    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -232,6 +235,7 @@ void t_buffer_case_nspit_reading_across_the_wrap_boundary_partial(void) {
 
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
+    free(raw);
     io_buffer_free(&before);
     io_buffer_free(&after);
 }
@@ -270,6 +274,7 @@ void t_buffer_case_nspit_with_n_eq_0(void) {
     T_BUFFER_ASSERT(strcmp(dest, orig) == 0);
     T_BUFFER_ASSERT(t_buffer_cmp(&after, &before) == true);
 
+    free(dest);
     io_buffer_free(&before);
     io_buffer_free(&after);
 
