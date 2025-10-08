@@ -75,10 +75,15 @@ IO_Err io_buffer_free(IO_Buffer *b);
 size_t io_buffer_len(IO_Buffer *b);
 
 /**
- * Advances the buffer's `start` pointer forward by up to n bytes and returns
- * number of bytes the start pointer was advanced.
+ * Resets IO buffer `b`.
+ */
+IO_Err io_buffer_reset(IO_Buffer *b);
+
+/**
+ * Advances IO buffer `b` by up to `n` bytes forward and returns number of
+ * bytes the start pointer was advanced.
  *
- * If n exceeds the number of bytes currently stored (as returned by
+ * If `n` exceeds the number of bytes currently stored (as returned by
  * io_buffer_len()), only the available bytes are skipped.
  */
 size_t io_buffer_nadvance(IO_Buffer *b, size_t n);
@@ -138,6 +143,11 @@ static inline size_t _io_buffer_size(IO_Buffer *b) {
 size_t io_buffer_len(IO_Buffer *b) {
     if (b->end >= b->start) return b->end - b->start;
     return _io_buffer_size(b) - (b->start - b->buf) + (b->end - b->buf);
+}
+
+IO_Err io_buffer_reset(IO_Buffer *b) {
+    b->start = b->end;
+    return IO_ERR_OK;
 }
 
 /**
