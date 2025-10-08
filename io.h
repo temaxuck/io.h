@@ -58,19 +58,19 @@ typedef struct {
 } IO_Buffer;
 
 /**
- * Initializes IO buffer.
+ * Initializes IO buffer `b` wtih `cap` capacity.
  *
  * The callee must free the buffer later using `io_buffer_free()` function.
  */
 IO_Err io_buffer_init(IO_Buffer *b, size_t cap);
 
 /**
- * Frees buffer.
+ * Frees IO buffer `b`.
  */
 IO_Err io_buffer_free(IO_Buffer *b);
 
 /**
- * Returns length of a buffer data.
+ * Returns length of the data of IO buffer `b`.
  */
 size_t io_buffer_len(IO_Buffer *b);
 
@@ -89,17 +89,18 @@ IO_Err io_buffer_reset(IO_Buffer *b);
 size_t io_buffer_nadvance(IO_Buffer *b, size_t n);
 
 /**
- * Copies n bytes of data from provided buffer into a contiguous array.
+ * Copies `n` bytes of data from IO buffer `src` into `dest`.
  *
- * The function presumes that `dest` is a properly allocated array and has
+ * This function presumes that `dest` is a properly allocated array and has
  * enough size to store the whole buffer data.
  */
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
 
 /**
- * Appends data of size n into buffer.
+ * Appends `n` bytes from `src` into IO buffer `dest`.
  *
- * The function presumes that `src` is a properly allocated contiguous array.
+ * This function presumes that `src` is a properly allocated destination
+ * array.
  */
 IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
 
