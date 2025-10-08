@@ -31,6 +31,7 @@ typedef enum {
     IO_ERR_OOB,         // Out of bounds
     IO_ERR_EOF,         // End of file
     IO_ERR_INV_PTR,     // Invalid pointer
+    IO_ERR_PARTIAL,     // Reader read less than was required
     IO_ERR_FAILED_READ, // Failed to read from file descriptor
 } IO_Err;
 
@@ -144,8 +145,9 @@ size_t io_reader_buffered(IO_Reader *r);
  * break this guarantee and risk partial or inconsistent results. In short:
  * the buffer defines the maximum peekable window size.
  *
- * On partial reads (e.g., end-of-file reached before `n` bytes could be
- * read), returns `IO_ERR_EOF` and copies as much data as was available.
+ * If fewer than n bytes are available, returns IO_ERR_PARTIAL and copies what
+ * was read. This does not imply EOF — only that less data was available
+ * now. If the stream is closed (EOF), returns IO_ERR_EOF.
  */
 IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n);
 
@@ -159,8 +161,9 @@ IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n);
  * appended to `dest`. Unlike `io_reader_npeek`, this operation advances the
  * reader's position and discards consumed data from the buffer.
  *
- * On partial reads (e.g., if EOF is reached before `n` bytes are read),
- * returns `IO_ERR_EOF` and copies as much data as was available.
+ * If fewer than n bytes are available, returns IO_ERR_PARTIAL and copies what
+ * was read. This does not imply EOF — only that less data was available
+ * now. If the stream is closed (EOF), returns IO_ERR_EOF.
  */
 IO_Err io_reader_nread(IO_Reader *r, char *dest, size_t n);
 
@@ -361,12 +364,17 @@ IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n) {
     if (to_read > 0) {
         int nread = IO_READ(r->fd, dest + buflen, to_read);
         if (nread < 0) return IO_ERR_FAILED_READ;
+        if (nread == 0) {
+            result = IO_ERR_EOF;
+            goto defer;
+        }
         if ((err = io_buffer_append(r->b, dest + buflen, nread)) && err != IO_ERR_OK) return err;
         r->nread += nread;
         buflen = io_buffer_len(r->b);
-        if ((size_t)nread < to_read) result = IO_ERR_EOF;
+        if ((size_t)nread < to_read) result = IO_ERR_PARTIAL;
     }
 
+ defer:
     // NOTE: Reader may not store exactly n bytes, in case when fd provided
     //       fewer bytes than requested.
     if ((err = io_buffer_nspit(r->b, dest, MIN(io_reader_buffered(r), n))) && err != IO_ERR_OK) return err;
@@ -409,11 +417,17 @@ IO_Err io_reader_nread(IO_Reader *r, char *dest, size_t n) {
     if (to_read > 0) {
         int nread = IO_READ(r->fd, dest + copied, to_read);
         if (nread < 0) return IO_ERR_FAILED_READ;
+        if (nread == 0) {
+            result = IO_ERR_EOF;
+            goto defer;
+        }
+
         r->pos += nread;
         r->nread += nread;
-        if ((size_t)nread < to_read) result = IO_ERR_EOF;
+        if ((size_t)nread < to_read) result = IO_ERR_PARTIAL;
     }
 
+ defer:
     IO_ASSERT(r->pos <= r->nread && "Out of bounds");
     return result;
 }

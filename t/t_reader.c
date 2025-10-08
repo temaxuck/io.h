@@ -84,7 +84,7 @@ bool t_reader_case_peek_more_than_available_data(void) {
     IO_Reader r = T_READER_WITH_DATA(8, "XYZ", 3);
 
     char dest[8] = {0};
-    T_ASSERT(io_reader_npeek(&r, dest, 6) == IO_ERR_EOF);
+    T_ASSERT(io_reader_npeek(&r, dest, 6) == IO_ERR_PARTIAL);
     if (!T_ASSERT(strcmp(dest, "XYZ") == 0)) printf("ERROR: dest=%.*s (expected: XYZ)\n", 3, dest);
     T_READER_ASSERT_BUFFER_EQ(&r, "XYZ", 3);
     T_ASSERT(r.pos == 0);
@@ -182,8 +182,14 @@ bool t_reader_case_read_hitting_EOF(void) {
     IO_Reader r = T_READER_WITH_DATA(5, "AB", 2);
 
     char dest[8] = {0};
-    T_ASSERT(io_reader_nread(&r, dest, 5) == IO_ERR_EOF);
+    T_ASSERT(io_reader_nread(&r, dest, 5) == IO_ERR_PARTIAL);
     if (!T_ASSERT(strcmp(dest, "AB") == 0)) printf("ERROR: dest=%.*s (expected: AB)\n", 2, dest);
+    T_READER_ASSERT_BUFFER_EQ(&r, "", 0);
+    T_READER_ASSERT_FOR_READER(r.pos == 2 && r.nread == 2, &r);
+
+    memset(dest, '\0', 8);
+    T_ASSERT(io_reader_nread(&r, dest, 5) == IO_ERR_EOF);
+    !T_ASSERT(strlen(dest) == 0);
     T_READER_ASSERT_BUFFER_EQ(&r, "", 0);
     T_READER_ASSERT_FOR_READER(r.pos == 2 && r.nread == 2, &r);
 
@@ -214,7 +220,7 @@ bool t_reader_case_sequence_peek_consume_read_peek_discard(void) {
     T_READER_ASSERT_FOR_READER(r.pos == 5 && r.nread == 5, &r);
 
     memset(dest, 0, 8);
-    T_ASSERT(io_reader_npeek(&r, dest, 8) == IO_ERR_EOF);
+    T_ASSERT(io_reader_npeek(&r, dest, 8) == IO_ERR_PARTIAL);
     T_READER_ASSERT_BUFFER_EQ(&r, "FGH", 3);
     T_ASSERT(strcmp(dest, "FGH") == 0);
     T_READER_ASSERT_FOR_READER(r.pos == 5 && r.nread == 8, &r);
