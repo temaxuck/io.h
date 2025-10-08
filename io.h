@@ -29,6 +29,7 @@ typedef enum {
     IO_ERR_OK,
     IO_ERR_OOM,         // Out of memory
     IO_ERR_OOB,         // Out of bounds
+    IO_ERR_EOF,         // End of file
     IO_ERR_INV_PTR,     // Invalid pointer
     IO_ERR_FAILED_READ, // Failed to read from file descriptor
 } IO_Err;
@@ -104,6 +105,90 @@ IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
  */
 IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
 
+/**
+ * Reader entity.
+ *
+ * Represents a file descriptor reader with an associated IO_Buffer. Use this
+ * to perform buffered read operations without manually managing partial reads
+ * or file descriptor offsets.
+ */
+typedef struct {
+    IO_Buffer *b;
+    size_t nread, pos;
+    int fd;
+} IO_Reader;
+
+/**
+ * Initializes reader `r` with IO Buffer `b` and a file descriptor `fd`.
+ */
+IO_Err io_reader_init(IO_Reader *r, IO_Buffer *b, int fd);
+
+/**
+ * Returns number of buffered bytes by reader (`r`).
+ *
+ * Reader buffers data when performing `peek` operation. See docs for
+ * io_reader_npeek().
+ */
+size_t io_reader_buffered(IO_Reader *r);
+
+/**
+ * Reads up to `n` bytes from reader (`r`) into destination buffer (`dest`)
+ * **without** advancing the reader's position. Data is first read (if needed)
+ * into the reader's internal buffer, and then copied to `dest`.
+ *
+ * This function ensures that the requested number of bytes (`n`) fits within
+ * the reader's buffer capacity. If `n` exceeds the buffer capacity, it
+ * returns `IO_ERR_OOB` ("out of bounds"). This behavior is *expected* because
+ * the peek operation depends on the buffer to hold all requested data for
+ * potential future reads. Allowing a peek size larger than the buffer would
+ * break this guarantee and risk partial or inconsistent results. In short:
+ * the buffer defines the maximum peekable window size.
+ *
+ * On partial reads (e.g., end-of-file reached before `n` bytes could be
+ * read), returns `IO_ERR_EOF` and copies as much data as was available.
+ */
+IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n);
+
+/**
+ * Reads up to `n` bytes from reader (`r`) into destination buffer (`dest`),
+ * advancing the reader's position by the number of bytes successfully read.
+ *
+ * This function first consumes any available data from the reader's internal
+ * buffer. If the buffer does not contain enough data to satisfy the request,
+ * additional bytes are read directly from the underlying file descriptor and
+ * appended to `dest`. Unlike `io_reader_npeek`, this operation advances the
+ * reader's position and discards consumed data from the buffer.
+ *
+ * On partial reads (e.g., if EOF is reached before `n` bytes are read),
+ * returns `IO_ERR_EOF` and copies as much data as was available.
+ */
+IO_Err io_reader_nread(IO_Reader *r, char *dest, size_t n);
+
+/**
+ * Consumes up to `n` bytes from reader (`r`)'s internal buffer, copying
+ * consumed data into `dest` (if non-NULL) and advancing the reader's position
+ * accordingly.
+ *
+ * If fewer than `n` bytes are available in the buffer, all available bytes
+ * are consumed. The function does not read additional data from the file
+ * descriptor.
+ *
+ * If `dest` is NULL, the function simply advances the buffer position without
+ * copying any data. Passing `n == 0` and a non-NULL `dest` is valid and
+ * treated as a no-op.
+ */
+IO_Err io_reader_nconsume(IO_Reader *r, char *dest, size_t n);
+
+/**
+ * Discards all data currently stored in reader (`r`)'s internal buffer,
+ * resetting it to an empty state and advancing the reader's position by the
+ * number of discarded bytes.
+ *
+ * This operation does not affect the underlying file descriptor — it simply
+ * clears any buffered data that has already been read into memory.
+ */
+IO_Err io_reader_discard(IO_Reader *r);
+
 #endif // IO_H
 
 #ifdef IO_IMPL
@@ -125,6 +210,12 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
 #  include <stdlib.h>
 #  define IO_MALLOC malloc
 #endif // IO_MALLOC
+
+#ifndef IO_READ
+// TODO: Depending on platform, use different implementations of `read()`
+#  include <unistd.h>
+#  define IO_READ read
+#endif // IO_READ
 
 
 #ifndef MIN
@@ -247,9 +338,85 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n) {
     return IO_ERR_OK;
 }
 
+IO_Err io_reader_init(IO_Reader *r, IO_Buffer *b, int fd) {
+    r->b = b;
+    r->fd = fd;
+    r->pos = r->nread = 0;
     return IO_ERR_OK;
+}
+
+size_t io_reader_buffered(IO_Reader *r) {
+    IO_ASSERT(r->nread >= r->pos && r->nread - r->pos == io_buffer_len(r->b) && "Out of bounds");
+    return r->nread - r->pos;
+}
+
+IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n) {
+    if (n == 0) return IO_ERR_OK;
+    if (n > r->b->cap) return IO_ERR_OOB;
+
+    IO_Err result = IO_ERR_OK, err = result;
+    size_t buflen = io_buffer_len(r->b);
+    size_t to_read = n - MIN(n, buflen);
+
+    if (to_read > 0) {
+        int nread = IO_READ(r->fd, dest + buflen, to_read);
+        if (nread < 0) return IO_ERR_FAILED_READ;
+        if ((err = io_buffer_append(r->b, dest + buflen, nread)) && err != IO_ERR_OK) return err;
+        r->nread += nread;
+        buflen = io_buffer_len(r->b);
+        if ((size_t)nread < to_read) result = IO_ERR_EOF;
+    }
+
+    // NOTE: Reader may not store exactly n bytes, in case when fd provided
+    //       fewer bytes than requested.
+    if ((err = io_buffer_nspit(r->b, dest, MIN(io_reader_buffered(r), n))) && err != IO_ERR_OK) return err;
+    return result;
+}
+
+IO_Err io_reader_nconsume(IO_Reader *r, char *dest, size_t n) {
+    if (n == 0 && dest != NULL) return IO_ERR_OK;
+    IO_Err err;
+
+    size_t to_copy = MIN(n, io_buffer_len(r->b));
+    if (dest != NULL) {
+        if ((err = io_buffer_nspit(r->b, dest, to_copy)) && err != IO_ERR_OK) return err;
+    }
+
+    io_buffer_nadvance(r->b, to_copy);
+    r->pos += to_copy;
+
+    IO_ASSERT(r->pos <= r->nread && "Out of bounds");
+    return IO_ERR_OK;
+}
+
+IO_Err io_reader_discard(IO_Reader *r) {
+    r->pos += io_buffer_len(r->b);
+    io_buffer_reset(r->b);
+
+    IO_ASSERT(r->pos == r->nread && "Out of bounds");
+    return IO_ERR_OK;
+}
+
+IO_Err io_reader_nread(IO_Reader *r, char *dest, size_t n) {
+    if (n == 0) return IO_ERR_OK;
+    IO_Err result = IO_ERR_OK, err = result;
+
+    size_t start_pos = r->pos;
+    if ((err = io_reader_nconsume(r, dest, n)) && err != IO_ERR_OK) return err;
+
+    size_t copied = r->pos - start_pos;
+    size_t to_read = n - copied;
+    if (to_read > 0) {
+        int nread = IO_READ(r->fd, dest + copied, to_read);
+        if (nread < 0) return IO_ERR_FAILED_READ;
+        r->pos += nread;
+        r->nread += nread;
+        if ((size_t)nread < to_read) result = IO_ERR_EOF;
+    }
+
+    IO_ASSERT(r->pos <= r->nread && "Out of bounds");
+    return result;
 }
 
 #  endif // IO_IMPL_GUARD
 #endif // IO_IMPL
-
