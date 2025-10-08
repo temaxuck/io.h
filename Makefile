@@ -17,7 +17,7 @@ tests: $(TEST_BINS)
 
 $(TEST_BUILD_DIR)/%: $(TEST_DIR)/%.c | test_build_dir
 	@echo "INFO: Building test file: $< -> $@"
-	@$(CC) -Wall -Wextra -O2 -o $@ $<
+	@$(CC) -ggdb -Wall -Wextra -Wno-unused-value -O2 -o $@ $<
 
 test_build_dir:
 	@mkdir -p $(TEST_BUILD_DIR)
