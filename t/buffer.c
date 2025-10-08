@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #define IO_IMPL
+#define _DEBUG
 #include "../io.h"
 
 static long T_BUFFER_PASSED = 0, T_BUFFER_FAILED = 0;

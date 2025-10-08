@@ -112,6 +112,15 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n);
 
 #include <string.h>
 
+#ifndef IO_ASSERT
+#  ifdef _DEBUG
+#    include <assert.h>
+#    define IO_ASSERT(expr) do { assert(expr); } while(0)
+#  else
+#    define IO_ASSERT(expr)
+#  endif // DEBUG
+#endif // IO_ASSERT
+
 #ifndef IO_MALLOC
 #  include <stdlib.h>
 #  define IO_MALLOC malloc
@@ -185,6 +194,8 @@ size_t io_buffer_nadvance(IO_Buffer *b, size_t n) {
     size_t new_pos = (cur_pos + to_shift) % _io_buffer_size(b);
 
     b->start = b->buf + new_pos;
+    IO_ASSERT(b->start <= b->buf + b->cap && "Out of bounds");
+
     return to_shift;
 }
 
@@ -222,15 +233,19 @@ IO_Err io_buffer_append(IO_Buffer *dest, char *src, size_t n) {
 
     size_t to_copy = MIN(_io_buffer_left_until_wrap(dest), n);
     memcpy(dest->end, src, to_copy);
-    // TODO: Possible overflow.
     dest->end += to_copy;
-    if (dest->end >= &dest->buf[_io_buffer_size(dest)]) dest->end = dest->buf;
+    if (dest->end == dest->buf + _io_buffer_size(dest)) dest->end = dest->buf;
     n -= to_copy;
 
     if (n > 0) {
         memcpy(dest->end, src + to_copy, n);
         dest->end += n;
     }
+
+    IO_ASSERT(dest->end <= dest->buf + _io_buffer_size(dest) && "Out of bounds");
+
+    return IO_ERR_OK;
+}
 
     return IO_ERR_OK;
 }
