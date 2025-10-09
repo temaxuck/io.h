@@ -77,6 +77,19 @@ IO_Err io_buffer_free(IO_Buffer *b);
 size_t io_buffer_len(IO_Buffer *b);
 
 /**
+ * Returns the byte located at logical position `pos` within the buffer's
+ * (`b`) valid data region, starting from the current start position.
+ *
+ * This function treats the internal storage as if it's a contiguos array and
+ * correctly wraps around when the end of the underlying buffer is
+ * reached.
+ *
+ * NOTE: The function does not perform bounds checking. That is, if the `pos`
+ *       exceeds buffer's length, the result is undefined.
+ */
+char io_buffer_at(IO_Buffer *b, size_t pos);
+
+/**
  * Resets IO buffer `b`.
  */
 IO_Err io_buffer_reset(IO_Buffer *b);
@@ -298,6 +311,11 @@ size_t io_buffer_nadvance(IO_Buffer *b, size_t n) {
     IO_ASSERT(b->start <= b->buf + b->cap && "Out of bounds");
 
     return to_shift;
+}
+
+char io_buffer_at(IO_Buffer *b, size_t pos) {
+    size_t cur_pos = b->start - b->buf;
+    return b->buf[(cur_pos + pos) % _io_buffer_size(b)];
 }
 
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
