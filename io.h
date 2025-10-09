@@ -188,6 +188,16 @@ IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n);
 IO_Err io_reader_nread(IO_Reader *r, char *dest, size_t n);
 
 /**
+ * Ensures that at least `n` bytes are available in the reader's (`r`)
+ * internal buffer by performing a non-advancing read (peek) operation.
+ *
+ * This function allocates a temporary buffer of size `n` and calls
+ * io_reader_npeek() to read or fetch data into the internal buffer without
+ * consuming it. The temporary buffer is freed immediately after use.
+ */
+IO_Err io_reader_prefetch(IO_Reader *r, size_t n);
+
+/**
  * Consumes up to `n` bytes from reader (`r`)'s internal buffer, copying
  * consumed data into `dest` (if non-NULL) and advancing the reader's position
  * accordingly.
@@ -399,8 +409,16 @@ IO_Err io_reader_npeek(IO_Reader *r, char *dest, size_t n) {
     return IO_ERR_OK;
 }
 
+IO_Err io_reader_prefetch(IO_Reader *r, size_t n) {
+    char *tmp = IO_MALLOC(n);
+    if (tmp == NULL) return IO_ERR_OOM;
+    IO_Err res = io_reader_npeek(r, tmp, n);
+    free(tmp);
+    return res;
+}
+
 IO_Err io_reader_nconsume(IO_Reader *r, char *dest, size_t n) {
-    if (n == 0 && dest != NULL) return IO_ERR_OK;
+    if (n == 0) return IO_ERR_OK;
 
     size_t to_copy = MIN(n, io_buffer_len(r->b));
     if (dest != NULL) IO_ASSERT(io_buffer_nspit(r->b, dest, to_copy) == IO_ERR_OK);
