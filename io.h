@@ -25,15 +25,28 @@
 #ifndef IO_H
 #  define IO_H
 
+#define IO_ERR_MAP(XX)                                          \
+    XX(1, OK,          "OK"                                 )   \
+    XX(2, OOM,         "Out of memory"                      )   \
+    XX(3, OOB,         "Out of bounds"                      )   \
+    XX(4, EOF,         "End of file"                        )   \
+    XX(5, INV_PTR,     "Invalid pointer"                    )   \
+    XX(6, PARTIAL,     "Reader read less than was requested")   \
+    XX(7, FAILED_READ, "Failed to read from file descriptor")
+
+
 typedef enum {
-    IO_ERR_OK,
-    IO_ERR_OOM,         // Out of memory
-    IO_ERR_OOB,         // Out of bounds
-    IO_ERR_EOF,         // End of file
-    IO_ERR_INV_PTR,     // Invalid pointer
-    IO_ERR_PARTIAL,     // Reader read less than was requested
-    IO_ERR_FAILED_READ, // Failed to read from file descriptor
+#define XX(num, name, ...) IO_ERR_##name = num,
+    IO_ERR_MAP(XX)
+#undef XX
 } IO_Err;
+
+/**
+ * Get string representation of error `err`.
+ *
+ * TODO: Do not require `IO_IMPL` for this function.
+ */
+const char *io_err_to_cstr(IO_Err err);
 
 /**
  * Reusable circular buffer for IO operations.
@@ -254,6 +267,17 @@ IO_Err io_reader_discard(IO_Reader *r);
 #ifndef MIN
 #  define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif // MIN
+
+
+const char *io_err_to_cstr(IO_Err err) {
+#define XX(num, name, repr) if (err == num) return repr;
+    IO_ERR_MAP(XX)
+#undef XX
+    IO_ASSERT(0 && "Unreachable");
+    // NOTE: Suppressing warning:
+    //       control reaches end of non-void function [-Wreturn-type]
+    return "";
+}
 
 IO_Err io_buffer_init(IO_Buffer *b, size_t cap) {
     b->cap = cap;
