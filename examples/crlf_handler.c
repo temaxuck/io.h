@@ -90,12 +90,12 @@ size_t read_msg(IO_Reader *r, char *msg, size_t maxlen) {
                     break;
                 }
                 assert((err == IO_ERR_OK || err == IO_ERR_PARTIAL) && "Failed to read message");
-                // If the peeked byte is \n: consume 1 byte.
-                if (c == '\n') {
-                    char *dest = (n > maxlen) ? NULL : msg + n;
-                    assert(io_reader_nconsume(r, dest, 1) == IO_ERR_OK && "Failed to consume reader");
-                    n++;
-                }
+            }
+            // If the peeked byte is \n: consume 1 byte.
+            if (c == '\n') {
+                char *dest = (n > maxlen) ? NULL : msg + n;
+                assert(io_reader_nconsume(r, dest, 1) == IO_ERR_OK && "Failed to consume reader");
+                n++;
             }
             break;
         }

@@ -30,9 +30,8 @@
     XX(2, OOM,         "Out of memory"                      )   \
     XX(3, OOB,         "Out of bounds"                      )   \
     XX(4, EOF,         "End of file"                        )   \
-    XX(5, INV_PTR,     "Invalid pointer"                    )   \
-    XX(6, PARTIAL,     "Reader read less than was requested")   \
-    XX(7, FAILED_READ, "Failed to read from file descriptor")
+    XX(5, PARTIAL,     "Reader read less than was requested")   \
+    XX(6, FAILED_READ, "Failed to read from file descriptor")
 
 
 typedef enum {
@@ -121,6 +120,9 @@ size_t io_buffer_nadvance(IO_Buffer *b, size_t n);
  *
  * This function presumes that `dest` is a properly allocated array and has
  * enough size to store the whole buffer data.
+ *
+ * NOTE: If `src` is NULL or `n` is 0, calling this function is equivalent to
+ *       noop.
  */
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n);
 
@@ -353,8 +355,7 @@ char io_buffer_at(IO_Buffer *b, size_t pos) {
 }
 
 IO_Err io_buffer_nspit(IO_Buffer *src, char *dest, size_t n) {
-    if (dest == NULL)           return IO_ERR_INV_PTR;
-    if (n == 0)                 return IO_ERR_OK;
+    if (n == 0 || dest == NULL) return IO_ERR_OK;
     if (n > io_buffer_len(src)) return IO_ERR_OOB;
 
     if (src->end >= src->start) {
